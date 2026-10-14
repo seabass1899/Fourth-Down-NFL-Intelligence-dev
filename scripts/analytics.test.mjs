@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {decimalOdds,impliedProbability,settledReturn,settledProfit,expectedValue,summarize} from '../lib/analytics.mjs';
+test('american odds and payout arithmetic',()=>{assert.equal(decimalOdds(188),2.88);assert.ok(Math.abs(decimalOdds(-120)-1.8333333333)<1e-8);assert.ok(Math.abs(impliedProbability(188)-1/2.88)<1e-9);assert.ok(Math.abs(settledReturn(10,188,'win')-28.8)<1e-8);assert.equal(settledProfit(10,188,'win',30),20)});
+test('settlement edge cases',()=>{assert.equal(settledReturn(10,-120,'push'),10);assert.equal(settledReturn(10,-120,'loss'),0);assert.throws(()=>decimalOdds(90));assert.throws(()=>decimalOdds(0));assert.throws(()=>settledReturn(-1,120,'win'))});
+test('expected value and aggregate performance',()=>{assert.ok(expectedValue(100,100,.6)>0);const r=summarize([{stake:10,odds:188,result:'win',returnOverride:30},{stake:10,odds:-120,result:'loss'},{stake:20,odds:100,result:'pending'}]);assert.equal(r.staked,20);assert.equal(r.profit,10);assert.equal(r.roi,.5);assert.equal(r.wins,1);assert.equal(r.losses,1)});

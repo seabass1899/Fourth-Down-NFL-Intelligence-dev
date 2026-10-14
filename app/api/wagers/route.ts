@@ -1,0 +1,1 @@
+import {NextResponse} from 'next/server';export function GET(){return NextResponse.json({error:'Wager sync not enabled. P0.1 demo stores records in this browser only. Configure authentication and Supabase before deploying an API.'},{status:501})}
