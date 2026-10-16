@@ -153,7 +153,7 @@ BEGIN
 
   RETURN jsonb_build_object('run_id', v_run_id, 'inserted_teams', v_team_count,
     'inserted_games', v_game_count, 'inserted_mappings', v_mapping_count,
-    'database_transaction', 'committed');
+    'database_transaction', 'executed');
 END;
 $$;
 
