@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {assertSafeMappings,assertValidExistingGames,assertSafePlan} from '../lib/nfl/ingestion-guards.mjs';
+const source = {teams:[{id:'ARI'}],games:[{id:'2026_01_A'}]};
+test('accepts matching mapping',()=>assert.doesNotThrow(()=>assertSafeMappings(source,[{provider:'nflverse',entity_type:'team',external_id:'ARI',canonical_id:'ARI'}])));
+test('rejects hijacked team mapping',()=>assert.throws(()=>assertSafeMappings(source,[{provider:'nflverse',entity_type:'team',external_id:'ARI',canonical_id:'ATL'}]),/different canonical ID/));
+test('rejects hijacked game mapping',()=>assert.throws(()=>assertSafeMappings(source,[{provider:'nflverse',entity_type:'game',external_id:'2026_01_A',canonical_id:'other'}]),/different canonical ID/));
+test('rejects inconsistent duplicate mappings',()=>assert.throws(()=>assertSafeMappings(source,[{provider:'x',entity_type:'team',external_id:'a',canonical_id:'A'},{provider:'x',entity_type:'team',external_id:'a',canonical_id:'B'}]),/Conflicting/));
+test('accepts valid ISO kickoff',()=>assert.doesNotThrow(()=>assertValidExistingGames([{id:'g',kickoff:'2026-10-16T20:00:00Z'}])));
+test('rejects malformed existing kickoff',()=>assert.throws(()=>assertValidExistingGames([{id:'g',kickoff:'bad'}]),/Invalid existing/));
+test('rejects unexpected game updates',()=>assert.throws(()=>assertSafePlan({teamInserts:[],teamUpdates:[],gameInserts:[],gameUpdates:[{id:'g',status:'final'}],mappingInserts:[]}),/Unexpected game update/));
+test('accepts restricted kickoff update',()=>assert.doesNotThrow(()=>assertSafePlan({teamInserts:[],teamUpdates:[],gameInserts:[],gameUpdates:[{id:'g',kickoff:'2026-10-16T20:00:00Z'}],mappingInserts:[]})));
