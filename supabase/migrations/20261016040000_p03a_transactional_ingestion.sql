@@ -1,5 +1,6 @@
 -- FourthDown P0.3A-3D: restricted, atomic NFL roster/schedule ingestion.
--- No source scores or final-game claims are imported in this phase.
+-- Source scores and final-game claims are rejected in this phase.
+-- Audit records_processed counts validated input (304), while return fields count newly inserted rows.
 BEGIN;
 
 CREATE OR REPLACE FUNCTION public.ingest_nfl_schedule_v1(
@@ -15,13 +16,10 @@ SECURITY INVOKER
 SET search_path = ''
 AS $$
 DECLARE
-  r record;
   v_team_count integer := 0;
   v_game_count integer := 0;
   v_mapping_count integer := 0;
   v_run_id uuid;
-  v_existing record;
-  v_expected text;
 BEGIN
   -- This check is defense in depth; EXECUTE is also limited to service_role.
   IF current_user <> 'service_role' THEN
@@ -56,7 +54,7 @@ BEGIN
       id text, season integer, week integer, home_team_id text,
       away_team_id text, kickoff timestamptz, status text,
       home_score integer, away_score integer)
-    WHERE id IS NULL OR NULLIF(btrim(id), '') IS NULL OR season <> p_season
+    WHERE id IS NULL OR id !~ '^2026_(0[1-9]|1[0-8])_[A-Z0-9]{2,4}_[A-Z0-9]{2,4}$' OR season <> p_season
       OR season IS NULL OR week NOT BETWEEN 1 AND 18
       OR kickoff IS NULL OR home_team_id IS NULL OR away_team_id IS NULL
       OR home_team_id = away_team_id
@@ -134,14 +132,23 @@ BEGIN
        OR e.home_team_id IS DISTINCT FROM g.home_team_id
        OR e.away_team_id IS DISTINCT FROM g.away_team_id
        OR e.kickoff IS DISTINCT FROM g.kickoff
-  ) THEN RAISE EXCEPTION 'post-insert identity conflict'; END IF;
+  ) OR EXISTS (
+    SELECT 1 FROM public.data_provider_entities m
+    WHERE m.provider = p_provider
+      AND ((m.entity_type = 'team' AND EXISTS (
+          SELECT 1 FROM jsonb_to_recordset(p_teams) AS t(id text)
+          WHERE t.id = m.external_id AND t.id <> m.canonical_id))
+        OR (m.entity_type = 'game' AND EXISTS (
+          SELECT 1 FROM jsonb_to_recordset(p_games) AS g(id text)
+          WHERE g.id = m.external_id AND g.id <> m.canonical_id)))
+  ) THEN RAISE EXCEPTION 'post-insert identity or mapping conflict'; END IF;
 
   INSERT INTO public.data_ingestion_runs(
     provider, dataset, status, started_at, completed_at,
     records_received, records_processed, records_failed, source_reference, source_license)
   VALUES (
     p_provider, 'teams_and_2026_regular_schedule', 'completed', now(), now(),
-    304, v_team_count + v_game_count, 0, p_source_reference, p_source_license)
+    304, 304, 0, p_source_reference, p_source_license)
   RETURNING id INTO v_run_id;
 
   RETURN jsonb_build_object('run_id', v_run_id, 'inserted_teams', v_team_count,
