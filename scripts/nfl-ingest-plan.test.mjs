@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { normalizeData, makeInsertPlan } from '../lib/nfl/ingestion-plan.mjs';
+const teamRows = [ { season: '2026', team: 'LA', full: 'Los Angeles Rams' }, { season: '2026', team: 'SF', full: 'San Francisco 49ers' } ];
+const gameRows = [ { season: '2026', game_type: 'REG', game_id: '2026_01_SF_LA', week: '1', gameday: '2026-09-10', gametime: '20:35', home_team: 'LA', away_team: 'SF', home_score: '7', away_score: '27' } ];
+const options = { enforceExpectedCounts: false, assumeEasternTime: true };
+const model = () => normalizeData(teamRows, gameRows, options);
+test('normalizes ET kickoff to UTC and retains unverified game status', () => { const g = model().games[0]; assert.equal(g.kickoff, '2026-09-11T00:35:00.000Z'); assert.equal(g.status, 'unverified'); });
+test('refuses unapproved timezone assumption', () => assert.throws(() => normalizeData(teamRows, gameRows, { enforceExpectedCounts: false }), /timezone assumption/));
+test('rejects duplicate team IDs', () => assert.throws(() => normalizeData([...teamRows, teamRows[0]], gameRows, options), /Duplicate team/));
+test('rejects unknown team references', () => assert.throws(() => normalizeData(teamRows, [{...gameRows[0], away_team: 'XYZ'}], options), /invalid team association/));
+test('rejects a partial score', () => assert.throws(() => normalizeData(teamRows, [{...gameRows[0], away_score: ''}], options), /partial score/));
+test('rejects duplicate games', () => assert.throws(() => normalizeData(teamRows, [...gameRows, gameRows[0]], options), /Duplicate game/));
+test('plans inserts and provider mappings', () => { const plan = makeInsertPlan(model()); assert.equal(plan.gameInserts.length, 1); assert.equal(plan.teamInserts.length, 2); assert.equal(plan.mappingInserts.length, 3); });
+test('re-import plan is idempotent when records and mappings are present', () => { const n = model(); const existing = { teams: n.teams, games: n.games, mappings: [ ...n.teams.map(t => ({provider:'nflverse',entity_type:'team',external_id:t.id})), ...n.games.map(g => ({provider:'nflverse',entity_type:'game',external_id:g.id})) ] }; const p = makeInsertPlan(n,existing); assert.equal(p.teamInserts.length + p.teamUpdates.length + p.gameInserts.length + p.gameUpdates.length + p.mappingInserts.length,0); });
+test('preserves existing final games', () => { const n=model(); const p=makeInsertPlan(n,{games:[{...n.games[0],status:'final',kickoff:'2026-09-11T01:00:00.000Z'}]}); assert.equal(p.gameUpdates.length,0); });
+test('rejects changed existing game matchup', () => { const n=model(); assert.throws(() => makeInsertPlan(n,{games:[{...n.games[0], home_team_id:'XYZ'}]}), /Unsafe existing game collisions/); });
